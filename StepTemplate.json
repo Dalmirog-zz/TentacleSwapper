@@ -1,0 +1,64 @@
+{
+  "Id": "ActionTemplates-140",
+  "Name": "TentacleSwapper",
+  "Description": "Reconfigures Polling and Listening Tentacles to point to a new Octopus Server",
+  "ActionType": "Octopus.Script",
+  "Version": 3,
+  "Properties": {
+    "Octopus.Action.Script.Syntax": "PowerShell",
+    "Octopus.Action.Script.ScriptBody": "#Reads the registry key \"HKLM:\\software\\Octopus\\Tentacle\" \r\n#to figure out the path of Tentacle.exe on the machine\r\nfunction Get-TentacleExePath{\r\n\r\n    $InstallPath = Get-ItemProperty \"HKLM:\\software\\Octopus\\Tentacle\" | select -ExpandProperty InstallLocation\r\n    if(Test-Path \"$InstallPath\\Tentacle.exe\"){\r\n        return \"$InstallPath\\Tentacle.exe\"\r\n    }\r\n    else{\r\n        Write-error \"Registry key referenced [$InstallPath] as Tentacle install location, but Tentacle.exe was not found there\"\r\n    }\r\n\r\n}\r\n\r\n#Get the name of the current tentacle instance based on the value of the variable $OctopusParameters[\"Octopus.Tentacle.Agent.ApplicationDirectoryPath\"]\r\n#This variable usually returns a value like this: C:\\Octopus\\Listening\r\n#In that case, the name of the instance would be \"Listening\"\r\nfunction Get-InstanceName{\r\n    [System.IO.DirectoryInfo]$Apppath = $OctopusParameters[\"Octopus.Tentacle.Agent.ApplicationDirectoryPath\"]\r\n\r\n    #Scenario for the \"(default)\" Tentacle\r\n    If($Apppath.FullName -eq \"C:\\Octopus\"){\r\n        return \"Tentacle\"\r\n    }\r\n    else{\r\n        return $apppath.name\r\n    }\r\n}\r\n\r\n#Reconfigures a listening Tentacle\r\nfunction reconfigure-ListeningTentacle ($instanceName, $TentacleExePath, $Thumbprint){\r\n    Write-Output \"Reconfiguring intance [$InstanceName] on machine $env:COMPUTERNAME\"   \r\n\r\n    & $TentacleExePath configure --instance \"$InstanceName\" --reset-trust --console\r\n    & $TentacleExePath configure --instance \"$instanceName\" --trust \"$Thumbprint\" --console\r\n}\r\n\r\nfunction reconfigure-PollingTentacle ($InstanceName, $TentacleExePath,$OctopusURL,$OctopusCommPort,$Username,$Password, $environmentName){\r\n    Write-Output \"Deleting intance [$InstanceName] on machine $env:COMPUTERNAME\"\r\n\r\n    #& $TentacleExePath service --instance $InstanceName --stop --uninstall --console\r\n    & $TentacleExePath delete-instance --instance $InstanceName --console\r\n    \r\n    Write-Output \"Creating intance [$InstanceName] on machine $env:COMPUTERNAME\"\r\n    \r\n    & $TentacleExePath create-instance --instance $InstanceName --config \"C:\\Octopus\\$InstanceName\\Tentacle-$InstanceName.config\" --console\r\n    & $TentacleExePath new-certificate --instance $InstanceName --if-blank --console\r\n    & $TentacleExePath configure --instance $InstanceName --reset-trust --console\r\n    & $TentacleExePath configure --instance $InstanceName --home \"C:\\Octopus\\$InstanceName\" --app \"C:\\Octopus\\Applications\\$InstanceName\" --port \"10933\" --noListen \"True\" --console\r\n    & $TentacleExePath register-with --instance $InstanceName --server $OctopusURL --name $InstanceName --username $Username --password $Password --comms-style \"TentacleActive\" --server-comms-port $OctopusCommPort --force --environment $environmentName --role \"webserver\" --console\r\n    #& $TentacleExePath service --instance $InstanceName --install --start --console\r\n}\r\n\r\n\r\nIf($OctopusParameters[\"Octopus.Machine.CommunicationStyle\"] -eq \"TentaclePassive\"){\r\n    reconfigure-ListeningTentacle -instanceName (Get-InstanceName) -TentacleExePath (Get-TentacleExePath) -Thumbprint $TargetThumbprint\r\n}\r\n\r\nif($OctopusParameters[\"Octopus.Machine.CommunicationStyle\"] -eq \"TentacleActive\"){\r\n    reconfigure-PollingTentacle -InstanceName (Get-InstanceName) -TentacleExePath (Get-TentacleExePath) -OctopusURL $TargetOctopusURL -OctopusCommPort $TargetOctopusCommPort -Username $TargetUsername -Password $TargetPassword -EnvironmentName $OctopusParameters['Octopus.Environment.Name']\r\n}#>\r\n\r\n#Localhost\r\n#reconfigure-PollingTentacle -InstanceName \"Polling\" -TentacleExePath 'C:\\Program Files\\Octopus Deploy\\Tentacle\\Tentacle.exe' -OctopusURL \"http://localhost\" -OctopusCommPort \"10943\" -Username \"dalmiro.granias\" -Password \"Michael2\" -EnvironmentName \"TentacleSwapper - Dev\"\r\n\r\n#Localhost 81\r\n#reconfigure-PollingTentacle -InstanceName \"Polling\" -TentacleExePath 'C:\\Program Files\\Octopus Deploy\\Tentacle\\Tentacle.exe' -OctopusURL \"http://localhost:81\" -OctopusCommPort 10944 -Username \"dalmiro.granias\" -Password \"Michael2\" -EnvironmentName \"TentacleSwapper - Dev\""
+  },
+  "SensitiveProperties": {},
+  "Parameters": [
+    {
+      "Name": "TargetOctopusCommPort",
+      "Label": "Target Octopus Comm Port",
+      "HelpText": "Port on the Octopus server where Polling Tentacles will be fetching data",
+      "DefaultValue": "10943",
+      "DisplaySettings": {
+        "Octopus.ControlType": "SingleLineText"
+      }
+    },
+    {
+      "Name": "TargetOctopusURL",
+      "Label": "Target Octopus URL",
+      "HelpText": "URL of the target Octopus Server",
+      "DefaultValue": null,
+      "DisplaySettings": {
+        "Octopus.ControlType": "SingleLineText"
+      }
+    },
+    {
+      "Name": "TargetPassword",
+      "Label": "Password",
+      "HelpText": "Admin password that will be used by Polling Tentacles to register with the Octopus Server",
+      "DefaultValue": null,
+      "DisplaySettings": {
+        "Octopus.ControlType": "Sensitive"
+      }
+    },
+    {
+      "Name": "TargetThumbprint",
+      "Label": "Target Thumbprint",
+      "HelpText": "Thumbprint of the target Octopus server that will be used by Listening tentacles during the re-configuration",
+      "DefaultValue": null,
+      "DisplaySettings": {
+        "Octopus.ControlType": "SingleLineText"
+      }
+    },
+    {
+      "Name": "TargetUsername",
+      "Label": "Target Username",
+      "HelpText": "Username that will be used by Polling Tentacles during the re-configuration",
+      "DefaultValue": null,
+      "DisplaySettings": {
+        "Octopus.ControlType": "SingleLineText"
+      }
+    }
+  ],
+  "$Meta": {
+    "ExportedAt": "2015-10-28T02:48:55.960Z",
+    "OctopusVersion": "3.1.4",
+    "Type": "ActionTemplate"
+  }
+}
